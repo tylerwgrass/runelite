@@ -26,6 +26,8 @@ package net.runelite.client.plugins.cluescrolls.clues;
 
 import java.util.Map;
 import net.runelite.api.coords.WorldPoint;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 import static org.junit.Assert.assertTrue;
 
@@ -36,6 +38,16 @@ public class CoordinateClueTest
 	{
 		// If this doesn't throw then the clues map doesn't have duplicate keys
 		new CoordinateClue("test", new WorldPoint(0, 0, 0), null);
+	}
+
+	@Test
+	public void testRequiresLight()
+	{
+		final CoordinateClue clueWithFirepit = new CoordinateClue("test", new WorldPoint(3830, 3060, 0), null);
+		final CoordinateClue clueWithoutFirepit = new CoordinateClue("test", new WorldPoint(2217, 3092, 0), null);
+
+		assertTrue(clueWithFirepit.isRequiresLight());
+		assertFalse(clueWithoutFirepit.isRequiresLight());
 	}
 
 	@Test
