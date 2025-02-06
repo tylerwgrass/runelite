@@ -63,16 +63,15 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.event.WindowFocusListener;
 import java.awt.image.BufferedImage;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -170,11 +169,12 @@ public class ClientUI
 
 	private JTabbedPane sidebar;
 	private final TreeSet<NavigationButton> sidebarEntries = new TreeSet<>(NavigationButton.COMPARATOR);
-	private TreeMap<String, Integer> sidebarPluginPriorities;
+	private TreeMap<String, Integer> sidebarPluginsOrder;
 	private List<NavigationButton> reprioritizedSidebarEntries;
 	private final Deque<HistoryEntry> selectedTabHistory = new ArrayDeque<>();
 	private NavigationButton selectedTab;
 	private NavigationButton itemToReorder;
+	private int itemToReorderOriginalPosition;
 
 	private ClientToolbarPanel toolbarPanel;
 	private boolean withTitleBar;
@@ -237,7 +237,7 @@ public class ClientUI
 	private void onProfileChanged(ProfileChanged event)
 	{
 		resetSidebar();
-		loadSidebarPluginPriorities();
+		loadSidebarPluginOrder();
 		SwingUtilities.invokeLater(() -> rebuildSidebar(-1));
 	}
 
@@ -255,6 +255,11 @@ public class ClientUI
 
 	void addNavigation(NavigationButton navBtn)
 	{
+		if (sidebarPluginsOrder == null)
+		{
+			loadSidebarPluginOrder();
+		}
+
 		if (navBtn.getPanel() == null)
 		{
 			toolbarPanel.add(navBtn, true);
@@ -264,18 +269,6 @@ public class ClientUI
 		if (!sidebarEntries.add(navBtn))
 		{
 			return;
-		}
-
-		if (sidebarPluginPriorities == null)
-		{
-			loadSidebarPluginPriorities();
-		}
-
-		String encoded = getNavButtonHash(navBtn);
-		if (!sidebarPluginPriorities.isEmpty() && !sidebarPluginPriorities.containsKey(encoded))
-		{
-			addNavigation(encoded, sidebarPluginPriorities.size());
-			savePluginPrioritiesConfig();
 		}
 
 		SwingUtilities.invokeLater(() -> rebuildSidebar(sidebar.getSelectedIndex()));
@@ -301,19 +294,9 @@ public class ClientUI
 				openPanel(entry.navBtn, entry.sidebarOpen);
 			}
 		}
-		if (sidebarPluginPriorities != null && sidebarPluginPriorities.isEmpty())
-		{
-			initSidebarOrder();
-		}
-		String pluginKey = getNavButtonHash(navBtn);
-		if (pluginKey.isEmpty())
-		{
-			return;
-		}
-		removeNavigation(pluginKey, sidebarPluginPriorities.get(pluginKey));
+
 		sidebarEntries.remove(navBtn);
-		savePluginPrioritiesConfig();
-		rebuildSidebar(0);
+		reprioritizedSidebarEntries = getNavButtonOrder();
 	}
 
 	private void rebuildSidebar(int indexToFocus)
@@ -466,15 +449,15 @@ public class ClientUI
 						{
 							return;
 						}
-						if (sidebarPluginPriorities.isEmpty())
+						if (sidebarPluginsOrder.isEmpty())
 						{
 							initSidebarOrder();
 						}
-						int priority = sidebarPluginPriorities.get(getNavButtonHash(itemToReorder));
-						int locationIndex = sidebar.indexAtLocation(e.getX(), e.getY());
-						if (locationIndex != -1 && locationIndex != priority)
+						int currentPluginPosition = itemToReorderOriginalPosition;
+						int targetPluginPosition = sidebar.indexAtLocation(e.getX(), e.getY());
+						if (targetPluginPosition != -1 && targetPluginPosition != currentPluginPosition)
 						{
-							changeNavButtonPriority(itemToReorder, Math.max(locationIndex, 1));
+							changeNavButtonOrder(itemToReorder, Math.max(targetPluginPosition, 1));
 						}
 					});
 				}
@@ -535,6 +518,7 @@ public class ClientUI
 						}
 
 						itemToReorder = Iterables.get(reprioritizedSidebarEntries, selectedIndex);
+						itemToReorderOriginalPosition = selectedIndex;
 					}
 				}
 
@@ -544,6 +528,7 @@ public class ClientUI
 					if (e.getButton() == MouseEvent.BUTTON3)
 					{
 						itemToReorder = null;
+						itemToReorderOriginalPosition = -1;
 						int locationIndex = sidebar.indexAtLocation(e.getX(), e.getY());
 						int tabToFocus = sidebar.getSelectedIndex() == -1 ? -1 : locationIndex;
 						rebuildSidebar(tabToFocus);
@@ -1493,52 +1478,60 @@ public class ClientUI
 		}
 	}
 
-	private String getNavButtonHash(NavigationButton navBtn)
+	private void changeNavButtonOrder(NavigationButton toMove, int newPriority)
 	{
-		if (navBtn == null || navBtn.getPanel() == null)
-		{
-			return "";
-		}
-		final String className = navBtn.getPanel().getClass().toString();
-		final String[] parts = className.split("\\.");
-		final String toHash = parts[parts.length - 2] + parts[parts.length - 1];
-		return Base64.getEncoder().encodeToString(toHash.getBytes(StandardCharsets.UTF_8));
-	}
+		reprioritizedSidebarEntries = getNavButtonOrder();
+		List<NavigationButton> newOrder = new ArrayList<>();
 
-	private void changeNavButtonPriority(NavigationButton navBtn, int newPriority)
-	{
-		String key = getNavButtonHash(navBtn);
-		removeNavigation(key, sidebarPluginPriorities.get(key));
-		addNavigation(key, newPriority);
-	}
-
-	private void addNavigation(String pluginKey, int priority)
-	{
-		for (var priorityEntry : sidebarPluginPriorities.entrySet())
+		for (NavigationButton navBtn : reprioritizedSidebarEntries)
 		{
-			if (priorityEntry.getValue() >= priority)
+			if (!navBtn.getId().equals(toMove.getId()))
 			{
-				sidebarPluginPriorities.put(priorityEntry.getKey(), priorityEntry.getValue() + 1);
+				newOrder.add(navBtn);
 			}
 		}
 
-		sidebarPluginPriorities.put(pluginKey, priority);
-	}
-
-	private void removeNavigation(String pluginKey, int priority)
-	{
-		sidebarPluginPriorities.remove(pluginKey);
-		for (var priorityEntry : sidebarPluginPriorities.entrySet())
+		newOrder.add(newPriority, toMove);
+		Set<String> activeIds = newOrder.stream().map(NavigationButton::getId).collect(Collectors.toSet());
+		List<String> merged = new ArrayList<>();
+		var priorityComparator = new Comparator<Map.Entry<String, Integer>>()
 		{
-			if (priorityEntry.getValue() > priority)
+			@Override
+			public int compare(Map.Entry<String, Integer> o1, Map.Entry<String, Integer> o2)
 			{
-				sidebarPluginPriorities.put(priorityEntry.getKey(), priorityEntry.getValue() - 1);
+				return o1.getValue().compareTo(o2.getValue());
 			}
+		};
+		SortedSet<Map.Entry<String, Integer>> reorderedNavBtns = new TreeSet<>(priorityComparator);
+		reorderedNavBtns.addAll(sidebarPluginsOrder.entrySet());
+
+		int activePluginIndex = 0;
+		for (var sidebarEntry : reorderedNavBtns)
+		{
+			if (!activeIds.contains(sidebarEntry.getKey()))
+			{
+				merged.add(sidebarEntry.getKey());
+			}
+			else
+			{
+				merged.add(newOrder.get(activePluginIndex).getId());
+				activePluginIndex++;
+			}
+		}
+
+		for (int i = 0; i < merged.size(); i++)
+		{
+			sidebarPluginsOrder.put(merged.get(i), i);
 		}
 	}
 
 	private List<NavigationButton> getNavButtonOrder()
 	{
+		if (sidebarPluginsOrder.isEmpty())
+		{
+			return new ArrayList<>(sidebarEntries);
+		}
+
 		var priorityComparator = new Comparator<Map.Entry<NavigationButton, Integer>>()
 		{
 			@Override
@@ -1547,20 +1540,15 @@ public class ClientUI
 				return o1.getValue().compareTo(o2.getValue());
 			}
 		};
+		SortedSet<Map.Entry<NavigationButton, Integer>> reorderedNavBtns = new TreeSet<>(priorityComparator);
 
-		if (sidebarPluginPriorities.isEmpty())
-		{
-			return new ArrayList<>(sidebarEntries);
-		}
-
-		SortedSet<Map.Entry<NavigationButton, Integer>> reprioritizedNavs = new TreeSet<>(priorityComparator);
 		for (var navBtn : sidebarEntries)
 		{
-			int priorityToUse = sidebarPluginPriorities.get(getNavButtonHash(navBtn));
-			reprioritizedNavs.add(Map.entry(navBtn, priorityToUse));
+			int priorityToUse = sidebarPluginsOrder.get(navBtn.getId());
+			reorderedNavBtns.add(Map.entry(navBtn, priorityToUse));
 		}
 
-		return reprioritizedNavs.stream().map(Map.Entry::getKey).collect(Collectors.toList());
+		return reorderedNavBtns.stream().map(Map.Entry::getKey).collect(Collectors.toList());
 	}
 
 	private void initSidebarOrder()
@@ -1568,30 +1556,78 @@ public class ClientUI
 		int currentIndex = 0;
 		for (var entry : sidebarEntries)
 		{
-			String entryHash = getNavButtonHash(entry);
-			sidebarPluginPriorities.put(entryHash, currentIndex);
+			sidebarPluginsOrder.put(entry.getId(), currentIndex);
 			currentIndex++;
 		}
 	}
 
+	private List<String> mergePluginOrderIds(List<NavigationButton> activePlugins)
+	{
+		int activePluginIndex = 0;
+		List<String> merged = new ArrayList<>();
+
+		final Set<String> activePluginIds = activePlugins
+			.stream()
+			.map(NavigationButton::getId)
+			.collect(Collectors.toSet());
+
+		var priorityComparator = new Comparator<Map.Entry<String, Integer>>()
+		{
+			@Override
+			public int compare(Map.Entry<String, Integer> o1, Map.Entry<String, Integer> o2)
+			{
+				return o1.getValue().compareTo(o2.getValue());
+			}
+		};
+		SortedSet<Map.Entry<String, Integer>> reorderedNavBtns = new TreeSet<>(priorityComparator);
+		reorderedNavBtns.addAll(sidebarPluginsOrder.entrySet());
+		for (var entry : reorderedNavBtns)
+		{
+			if (activePluginIds.contains(entry.getKey()))
+			{
+				merged.add(activePlugins.get(activePluginIndex).getId());
+				activePluginIndex++;
+			}
+			else
+			{
+				merged.add(entry.getKey());
+			}
+		}
+
+		return merged;
+	}
+
 	private void savePluginPrioritiesConfig()
 	{
-		String serialized = reprioritizedSidebarEntries.stream()
-			.map(this::getNavButtonHash)
-			.collect(Collectors.joining(","));
+		List<String> toSerialize = new ArrayList<>();
 
-		configManager.setConfiguration(CONFIG_GROUP, CONFIG_SIDEBAR_PLUGIN_ORDER, serialized);
+		if (sidebarPluginsOrder.isEmpty())
+		{
+			for (var navButton : sidebarEntries)
+			{
+				toSerialize.add(navButton.getId());
+			}
+		}
+		else
+		{
+			toSerialize = mergePluginOrderIds(reprioritizedSidebarEntries);
+		}
+
+		configManager.setConfiguration(
+			CONFIG_GROUP,
+			CONFIG_SIDEBAR_PLUGIN_ORDER,
+			String.join(",", toSerialize));
 	}
 
 	private void resetSidebar()
 	{
-		sidebarPluginPriorities = null;
+		sidebarPluginsOrder = null;
 	}
 
-	private void loadSidebarPluginPriorities()
+	private void loadSidebarPluginOrder()
 	{
 		final String serializedPriorities = configManager.getConfiguration(CONFIG_GROUP, CONFIG_SIDEBAR_PLUGIN_ORDER);
-		sidebarPluginPriorities = new TreeMap<>();
+		sidebarPluginsOrder = new TreeMap<>();
 		if (serializedPriorities == null)
 		{
 			return;
@@ -1599,7 +1635,7 @@ public class ClientUI
 		final String[] hashedPluginPanels = serializedPriorities.split(",");
 		for (int i = 0; i < hashedPluginPanels.length; i++)
 		{
-			sidebarPluginPriorities.put(hashedPluginPanels[i], i);
+			sidebarPluginsOrder.put(hashedPluginPanels[i], i);
 		}
 	}
 
