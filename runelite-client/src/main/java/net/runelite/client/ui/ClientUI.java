@@ -67,15 +67,12 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.SortedSet;
-import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -172,11 +169,12 @@ public class ClientUI
 	private JTabbedPane sidebar;
 	private final TreeSet<NavigationButton> sidebarEntries = new TreeSet<>(NavigationButton.COMPARATOR);
 	private LinkedList<String> sidebarPluginsOrder;
-	private List<NavigationButton> reprioritizedSidebarEntries;
+	private List<NavigationButton> activeSidebarOrder;
 	private final Deque<HistoryEntry> selectedTabHistory = new ArrayDeque<>();
 	private NavigationButton selectedTab;
-	private NavigationButton itemToReorder;
+	private NavigationButton selectedSidebarItem;
 	private int dragStartIndex;
+	private int previousSelectedSidebarIndex;
 
 	private ClientToolbarPanel toolbarPanel;
 	private boolean withTitleBar;
@@ -298,16 +296,16 @@ public class ClientUI
 		}
 
 		sidebarEntries.remove(navBtn);
-		reprioritizedSidebarEntries = getNavButtonOrder();
+		activeSidebarOrder = getNavButtonOrder();
 	}
 
 	private void rebuildSidebar(int indexToFocus)
 	{
-		reprioritizedSidebarEntries = getNavButtonOrder();
+		activeSidebarOrder = getNavButtonOrder();
 		sidebar.removeAll();
 		final int TAB_SIZE = 16;
 
-		for (var navButton : reprioritizedSidebarEntries)
+		for (var navButton : activeSidebarOrder)
 		{
 			Icon icon = new ImageIcon(ImageUtil.resizeImage(navButton.getIcon(), TAB_SIZE, TAB_SIZE));
 			sidebar.insertTab(null, icon, navButton.getPanel().getWrappedPanel(), navButton.getTooltip(),
@@ -490,9 +488,17 @@ public class ClientUI
 				{
 					if (SwingUtilities.isLeftMouseButton(e))
 					{
-						int selectedIndex = sidebar.indexAtLocation(e.getX(), e.getY());
-						itemToReorder = Iterables.get(reprioritizedSidebarEntries, selectedIndex);
-						dragStartIndex = selectedIndex;
+						dragStartIndex = sidebar.indexAtLocation(e.getX(), e.getY());
+						if (dragStartIndex == -1)
+						{
+							selectedSidebarItem = null;
+						}
+						else
+						{
+							selectedSidebarItem = activeSidebarOrder.get(dragStartIndex);
+							previousSelectedSidebarIndex = sidebar.getSelectedIndex();
+							sidebar.setSelectedIndex(previousSelectedSidebarIndex == -1 ? -1 : dragStartIndex);
+						}
 					}
 				}
 
@@ -502,23 +508,40 @@ public class ClientUI
 					if (SwingUtilities.isLeftMouseButton(e))
 					{
 						int dragEndIndex = sidebar.indexAtLocation(e.getX(), e.getY());
+						if (dragStartIndex == -1 || dragEndIndex == -1)
+						{
+							return;
+						}
 						int activePanelIndex = sidebar.getSelectedIndex();
-						if (activePanelIndex == -1)
-						{
-							sidebar.setSelectedIndex(dragEndIndex);
-						}
-						else if (dragEndIndex == dragStartIndex)
-						{
-							sidebar.setSelectedIndex(dragEndIndex == activePanelIndex ? -1 : dragEndIndex);
-						}
-						else if (dragEndIndex != -1 && dragStartIndex > 0)
-						{
-							changeNavButtonOrder(itemToReorder, Math.max(dragEndIndex, 1));
-							rebuildSidebar(Math.max(dragEndIndex, 1));
-							savePluginPrioritiesConfig();
+						boolean isSelectedItemMoveable = dragStartIndex != dragEndIndex
+							&& dragStartIndex != 0 && dragEndIndex != 0;
 
+						if (isSelectedItemMoveable)
+						{
+							changeNavButtonOrder(selectedSidebarItem, dragEndIndex);
+							rebuildSidebar(activePanelIndex == -1 ? -1 : dragEndIndex);
+							savePluginPrioritiesConfig();
 						}
-						itemToReorder = null;
+						else
+						{
+							if (activePanelIndex == -1)
+							{
+								boolean shouldOpen = (dragStartIndex == 0 && dragEndIndex == 0)
+									|| (dragStartIndex != 0 && dragEndIndex != 0);
+								sidebar.setSelectedIndex(shouldOpen ? dragEndIndex : -1);
+							}
+							else
+							{
+								boolean shouldCollapse = previousSelectedSidebarIndex == dragEndIndex
+									&& dragStartIndex == dragEndIndex;
+								int selectedIndex = dragStartIndex == 0 || dragEndIndex == 0
+									? dragStartIndex
+									: dragEndIndex;
+								sidebar.setSelectedIndex(shouldCollapse ? -1 : selectedIndex);
+							}
+						}
+
+						selectedSidebarItem = null;
 						dragStartIndex = -1;
 					}
 				}
@@ -1503,8 +1526,10 @@ public class ClientUI
 			if (navIdToButtonMap.containsKey(navBtnId))
 			{
 				ordered.add(navIdToButtonMap.get(navBtnId));
+				navIdToButtonMap.remove(navBtnId);
 			}
 		}
+		ordered.addAll(navIdToButtonMap.values());
 		return ordered;
 	}
 
