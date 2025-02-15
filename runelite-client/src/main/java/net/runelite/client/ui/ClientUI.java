@@ -174,7 +174,7 @@ public class ClientUI
 	private final Deque<HistoryEntry> selectedTabHistory = new ArrayDeque<>();
 	private NavigationButton selectedTab;
 	private NavigationButton itemToReorder;
-	private int itemToReorderOriginalPosition;
+	private int dragStartIndex;
 
 	private ClientToolbarPanel toolbarPanel;
 	private boolean withTitleBar;
@@ -438,30 +438,7 @@ public class ClientUI
 			sidebar.setOpaque(true);
 			sidebar.putClientProperty(FlatClientProperties.STYLE, "tabInsets: 2,5,2,5; variableSize: true; deselectable: true; tabHeight: 26");
 			sidebar.setSelectedIndex(-1);
-			sidebar.addMouseMotionListener(new java.awt.event.MouseAdapter()
-			{
-				@Override
-				public void mouseDragged(MouseEvent e)
-				{
-					SwingUtilities.invokeLater(() ->
-					{
-						if (itemToReorder == null)
-						{
-							return;
-						}
-						if (sidebarPluginsOrder.isEmpty())
-						{
-							initSidebarOrder();
-						}
-						int currentPluginPosition = itemToReorderOriginalPosition;
-						int targetPluginPosition = sidebar.indexAtLocation(e.getX(), e.getY());
-						if (targetPluginPosition != -1 && targetPluginPosition != currentPluginPosition)
-						{
-							changeNavButtonOrder(itemToReorder, Math.max(targetPluginPosition, 1));
-						}
-					});
-				}
-			});
+
 			sidebar.addChangeListener(ev ->
 			{
 				NavigationButton oldSelectedTab = selectedTab;
@@ -509,30 +486,38 @@ public class ClientUI
 				@Override
 				public void mousePressed(MouseEvent e)
 				{
-					if (e.getButton() == MouseEvent.BUTTON3)
+					if (SwingUtilities.isLeftMouseButton(e))
 					{
 						int selectedIndex = sidebar.indexAtLocation(e.getX(), e.getY());
-						if (selectedIndex <= 0 || itemToReorder != null)
-						{
-							return;
-						}
-
 						itemToReorder = Iterables.get(reprioritizedSidebarEntries, selectedIndex);
-						itemToReorderOriginalPosition = selectedIndex;
+						dragStartIndex = selectedIndex;
 					}
 				}
 
 				@Override
 				public void mouseReleased(MouseEvent e)
 				{
-					if (e.getButton() == MouseEvent.BUTTON3)
+					if (SwingUtilities.isLeftMouseButton(e))
 					{
+						int dragEndIndex = sidebar.indexAtLocation(e.getX(), e.getY());
+						int activePanelIndex = sidebar.getSelectedIndex();
+						if (activePanelIndex == -1)
+						{
+							sidebar.setSelectedIndex(dragEndIndex);
+						}
+						else if (dragEndIndex == dragStartIndex)
+						{
+							sidebar.setSelectedIndex(dragEndIndex == activePanelIndex ? -1 : dragEndIndex);
+						}
+						else if (dragEndIndex != -1 && dragStartIndex > 0)
+						{
+							changeNavButtonOrder(itemToReorder, Math.max(dragEndIndex, 1));
+							rebuildSidebar(Math.max(dragEndIndex, 1));
+							savePluginPrioritiesConfig();
+
+						}
 						itemToReorder = null;
-						itemToReorderOriginalPosition = -1;
-						int locationIndex = sidebar.indexAtLocation(e.getX(), e.getY());
-						int tabToFocus = sidebar.getSelectedIndex() == -1 ? -1 : locationIndex;
-						rebuildSidebar(tabToFocus);
-						savePluginPrioritiesConfig();
+						dragStartIndex = -1;
 					}
 				}
 
