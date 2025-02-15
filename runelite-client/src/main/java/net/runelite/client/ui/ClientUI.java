@@ -69,6 +69,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -169,7 +171,7 @@ public class ClientUI
 
 	private JTabbedPane sidebar;
 	private final TreeSet<NavigationButton> sidebarEntries = new TreeSet<>(NavigationButton.COMPARATOR);
-	private TreeMap<String, Integer> sidebarPluginsOrder;
+	private LinkedList<String> sidebarPluginsOrder;
 	private List<NavigationButton> reprioritizedSidebarEntries;
 	private final Deque<HistoryEntry> selectedTabHistory = new ArrayDeque<>();
 	private NavigationButton selectedTab;
@@ -1465,49 +1467,23 @@ public class ClientUI
 
 	private void changeNavButtonOrder(NavigationButton toMove, int newPriority)
 	{
-		reprioritizedSidebarEntries = getNavButtonOrder();
-		List<NavigationButton> newOrder = new ArrayList<>();
-
-		for (NavigationButton navBtn : reprioritizedSidebarEntries)
+		sidebarPluginsOrder.remove(toMove.getId());
+		int numActiveSeen = 0;
+		Set<String> activeNavIds = sidebarEntries.stream().map(NavigationButton::getId).collect(Collectors.toSet());
+		int trueInsertIndex = 0;
+		for (String navBtnId : sidebarPluginsOrder)
 		{
-			if (!navBtn.getId().equals(toMove.getId()))
+			if (activeNavIds.contains(navBtnId))
 			{
-				newOrder.add(navBtn);
+				if (numActiveSeen == newPriority)
+				{
+					break;
+				}
+				numActiveSeen++;
 			}
+			trueInsertIndex++;
 		}
-
-		newOrder.add(newPriority, toMove);
-		Set<String> activeIds = newOrder.stream().map(NavigationButton::getId).collect(Collectors.toSet());
-		List<String> merged = new ArrayList<>();
-		var priorityComparator = new Comparator<Map.Entry<String, Integer>>()
-		{
-			@Override
-			public int compare(Map.Entry<String, Integer> o1, Map.Entry<String, Integer> o2)
-			{
-				return o1.getValue().compareTo(o2.getValue());
-			}
-		};
-		SortedSet<Map.Entry<String, Integer>> reorderedNavBtns = new TreeSet<>(priorityComparator);
-		reorderedNavBtns.addAll(sidebarPluginsOrder.entrySet());
-
-		int activePluginIndex = 0;
-		for (var sidebarEntry : reorderedNavBtns)
-		{
-			if (!activeIds.contains(sidebarEntry.getKey()))
-			{
-				merged.add(sidebarEntry.getKey());
-			}
-			else
-			{
-				merged.add(newOrder.get(activePluginIndex).getId());
-				activePluginIndex++;
-			}
-		}
-
-		for (int i = 0; i < merged.size(); i++)
-		{
-			sidebarPluginsOrder.put(merged.get(i), i);
-		}
+		sidebarPluginsOrder.add(trueInsertIndex, toMove.getId());
 	}
 
 	private List<NavigationButton> getNavButtonOrder()
@@ -1516,70 +1492,20 @@ public class ClientUI
 		{
 			return new ArrayList<>(sidebarEntries);
 		}
-
-		var priorityComparator = new Comparator<Map.Entry<NavigationButton, Integer>>()
+		Map<String, NavigationButton> navIdToButtonMap = new HashMap<>();
+		for (NavigationButton navBtn : sidebarEntries)
 		{
-			@Override
-			public int compare(Map.Entry<NavigationButton, Integer> o1, Map.Entry<NavigationButton, Integer> o2)
-			{
-				return o1.getValue().compareTo(o2.getValue());
-			}
-		};
-		SortedSet<Map.Entry<NavigationButton, Integer>> reorderedNavBtns = new TreeSet<>(priorityComparator);
-
-		for (var navBtn : sidebarEntries)
-		{
-			int priorityToUse = sidebarPluginsOrder.get(navBtn.getId());
-			reorderedNavBtns.add(Map.entry(navBtn, priorityToUse));
+			navIdToButtonMap.put(navBtn.getId(), navBtn);
 		}
-
-		return reorderedNavBtns.stream().map(Map.Entry::getKey).collect(Collectors.toList());
-	}
-
-	private void initSidebarOrder()
-	{
-		int currentIndex = 0;
-		for (var entry : sidebarEntries)
+		List<NavigationButton> ordered = new ArrayList<>();
+		for (String navBtnId : sidebarPluginsOrder)
 		{
-			sidebarPluginsOrder.put(entry.getId(), currentIndex);
-			currentIndex++;
-		}
-	}
-
-	private List<String> mergePluginOrderIds(List<NavigationButton> activePlugins)
-	{
-		int activePluginIndex = 0;
-		List<String> merged = new ArrayList<>();
-
-		final Set<String> activePluginIds = activePlugins
-			.stream()
-			.map(NavigationButton::getId)
-			.collect(Collectors.toSet());
-
-		var priorityComparator = new Comparator<Map.Entry<String, Integer>>()
-		{
-			@Override
-			public int compare(Map.Entry<String, Integer> o1, Map.Entry<String, Integer> o2)
+			if (navIdToButtonMap.containsKey(navBtnId))
 			{
-				return o1.getValue().compareTo(o2.getValue());
-			}
-		};
-		SortedSet<Map.Entry<String, Integer>> reorderedNavBtns = new TreeSet<>(priorityComparator);
-		reorderedNavBtns.addAll(sidebarPluginsOrder.entrySet());
-		for (var entry : reorderedNavBtns)
-		{
-			if (activePluginIds.contains(entry.getKey()))
-			{
-				merged.add(activePlugins.get(activePluginIndex).getId());
-				activePluginIndex++;
-			}
-			else
-			{
-				merged.add(entry.getKey());
+				ordered.add(navIdToButtonMap.get(navBtnId));
 			}
 		}
-
-		return merged;
+		return ordered;
 	}
 
 	private void savePluginPrioritiesConfig()
@@ -1595,7 +1521,7 @@ public class ClientUI
 		}
 		else
 		{
-			toSerialize = mergePluginOrderIds(reprioritizedSidebarEntries);
+			toSerialize = sidebarPluginsOrder;
 		}
 
 		configManager.setConfiguration(
@@ -1612,16 +1538,13 @@ public class ClientUI
 	private void loadSidebarPluginOrder()
 	{
 		final String serializedPriorities = configManager.getConfiguration(CONFIG_GROUP, CONFIG_SIDEBAR_PLUGIN_ORDER);
-		sidebarPluginsOrder = new TreeMap<>();
+		sidebarPluginsOrder = new LinkedList<>();
 		if (serializedPriorities == null)
 		{
 			return;
 		}
-		final String[] hashedPluginPanels = serializedPriorities.split(",");
-		for (int i = 0; i < hashedPluginPanels.length; i++)
-		{
-			sidebarPluginsOrder.put(hashedPluginPanels[i], i);
-		}
+		final String[] navButtonIds = serializedPriorities.split(",");
+		sidebarPluginsOrder.addAll(List.of(navButtonIds));
 	}
 
 	private static void setupDefaults()
