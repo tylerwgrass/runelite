@@ -741,7 +741,7 @@ public class CoordinateClue extends ClueScroll implements LocationClueScroll
 		String directions,
 		Enemy enemy,
 		WorldPoint location,
-		Integer lightSourceVarbitId
+		@Varbit Integer lightSourceVarbitId
 	)
 	{
 		this.text = text;
