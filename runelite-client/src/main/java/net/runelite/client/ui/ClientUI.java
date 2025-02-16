@@ -69,7 +69,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -168,7 +167,7 @@ public class ClientUI
 
 	private JTabbedPane sidebar;
 	private final TreeSet<NavigationButton> sidebarEntries = new TreeSet<>(NavigationButton.COMPARATOR);
-	private LinkedList<String> sidebarPluginsOrder;
+	private List<String> sidebarPluginsOrder = new ArrayList<>();
 	private List<NavigationButton> activeSidebarOrder;
 	private final Deque<HistoryEntry> selectedTabHistory = new ArrayDeque<>();
 	private NavigationButton selectedTab;
@@ -236,9 +235,11 @@ public class ClientUI
 	@Subscribe
 	private void onProfileChanged(ProfileChanged event)
 	{
-		resetSidebar();
-		loadSidebarPluginOrder();
-		SwingUtilities.invokeLater(() -> rebuildSidebar(-1));
+		SwingUtilities.invokeLater(() ->
+		{
+			loadSidebarPluginOrder();
+			rebuildSidebar(0);
+		});
 	}
 
 	@Subscribe
@@ -255,11 +256,6 @@ public class ClientUI
 
 	void addNavigation(NavigationButton navBtn)
 	{
-		if (sidebarPluginsOrder == null)
-		{
-			loadSidebarPluginOrder();
-		}
-
 		if (navBtn.getPanel() == null)
 		{
 			toolbarPanel.add(navBtn, true);
@@ -282,12 +278,11 @@ public class ClientUI
 		}
 		else
 		{
-			if (sidebarPluginsOrder == null || sidebarPluginsOrder.isEmpty())
+			if (sidebarPluginsOrder.isEmpty())
 			{
 				sidebarPluginsOrder = getNavButtonOrder()
 					.stream()
-					.map(NavigationButton::getId)
-					.collect(Collectors.toCollection(LinkedList::new));
+					.map(NavigationButton::getId).collect(Collectors.toList());
 				savePluginPrioritiesConfig();
 			}
 
@@ -845,6 +840,13 @@ public class ClientUI
 				JOptionPane.showMessageDialog(frame,
 					ep, "Max memory limit low", JOptionPane.WARNING_MESSAGE);
 			});
+		}
+
+		loadSidebarPluginOrder();
+		if (configManager.getConfiguration(CONFIG_GROUP, CONFIG_SIDEBAR_PLUGIN_ORDER) == null)
+		{
+			sidebarPluginsOrder = getNavButtonOrder().stream().map(NavigationButton::getId).collect(Collectors.toList());
+			savePluginPrioritiesConfig();
 		}
 	}
 
@@ -1564,17 +1566,16 @@ public class ClientUI
 			String.join(",", toSerialize));
 	}
 
-	private void resetSidebar()
-	{
-		sidebarPluginsOrder = null;
-	}
-
 	private void loadSidebarPluginOrder()
 	{
 		final String serializedPriorities = configManager.getConfiguration(CONFIG_GROUP, CONFIG_SIDEBAR_PLUGIN_ORDER);
-		sidebarPluginsOrder = new LinkedList<>();
+		sidebarPluginsOrder.clear();
 		if (serializedPriorities == null)
 		{
+			for (var navButton : sidebarEntries)
+			{
+				sidebarPluginsOrder.add(navButton.getId());
+			}
 			return;
 		}
 		final String[] navButtonIds = serializedPriorities.split(",");

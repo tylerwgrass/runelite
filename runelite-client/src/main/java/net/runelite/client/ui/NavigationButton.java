@@ -84,15 +84,12 @@ public class NavigationButton
 		{
 			return id;
 		}
-
-		if (panel != null)
+		if (panel == null)
 		{
-			final String classPath = panel.getClass().toString();
-			// example path: "class some.path.to.PluginPanel"
-			return classPath.substring(classPath.indexOf(" ") + 1);
+			return null;
 		}
-		// What now?
-		final String buttonClassPath = this.getClass().toString();
-		return buttonClassPath.substring(buttonClassPath.indexOf(" ") + 1);
+		final String classPath = panel.getClass().toString();
+		// example path: "class some.path.to.PluginPanel"
+		return classPath.substring(classPath.indexOf(" ") + 1);
 	}
 }
