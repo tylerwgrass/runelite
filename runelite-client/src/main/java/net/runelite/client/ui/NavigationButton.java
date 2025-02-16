@@ -92,6 +92,7 @@ public class NavigationButton
 			return classPath.substring(classPath.indexOf(" ") + 1);
 		}
 		// What now?
-		return "";
+		final String buttonClassPath = this.getClass().toString();
+		return buttonClassPath.substring(buttonClassPath.indexOf(" ") + 1);
 	}
 }
