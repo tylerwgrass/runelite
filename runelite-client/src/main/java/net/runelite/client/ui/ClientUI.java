@@ -282,6 +282,15 @@ public class ClientUI
 		}
 		else
 		{
+			if (sidebarPluginsOrder == null || sidebarPluginsOrder.isEmpty())
+			{
+				sidebarPluginsOrder = getNavButtonOrder()
+					.stream()
+					.map(NavigationButton::getId)
+					.collect(Collectors.toCollection(LinkedList::new));
+				savePluginPrioritiesConfig();
+			}
+
 			boolean closingOpenTab = !selectedTabHistory.isEmpty() && selectedTabHistory.getLast().navBtn == navBtn;
 			selectedTabHistory.removeIf(it -> it.navBtn == navBtn);
 			sidebar.remove(navBtn.getPanel().getWrappedPanel());
