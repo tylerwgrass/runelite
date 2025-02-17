@@ -267,7 +267,22 @@ public class ClientUI
 			return;
 		}
 
-		SwingUtilities.invokeLater(() -> rebuildSidebar(sidebar.getSelectedIndex()));
+		if (sidebarPluginsOrder.isEmpty())
+		{
+			loadSidebarPluginOrder();
+		}
+
+		final int TAB_SIZE = 16;
+		Icon icon = new ImageIcon(ImageUtil.resizeImage(navBtn.getIcon(), TAB_SIZE, TAB_SIZE));
+		activeSidebarOrder = getNavButtonOrder();
+		final int insertIndex = activeSidebarOrder.indexOf(navBtn);
+
+		sidebar.insertTab(null, icon, navBtn.getPanel().getWrappedPanel(), navBtn.getTooltip(), insertIndex);
+		// insertTab changes the selected index when the first tab is inserted, avoid this
+		if (sidebar.getTabCount() == 1)
+		{
+			sidebar.setSelectedIndex(-1);
+		}
 	}
 
 	void removeNavigation(NavigationButton navBtn)
@@ -1572,10 +1587,6 @@ public class ClientUI
 		sidebarPluginsOrder.clear();
 		if (serializedPriorities == null)
 		{
-			for (var navButton : sidebarEntries)
-			{
-				sidebarPluginsOrder.add(navButton.getId());
-			}
 			return;
 		}
 		final String[] navButtonIds = serializedPriorities.split(",");
